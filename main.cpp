@@ -345,6 +345,7 @@ struct LoadInjection
 {
     uint32_t InjectionType;
     uint32_t InjectionAddress;
+    uint32_t NopCount;
 };
 
 struct LoadFunction
@@ -453,10 +454,18 @@ uint32_t LoadConfig(std::string filename)
             if(ToLower(args[0]) == "call") type = INJ_CALL;
 
             uint32_t addr = HexToInt(args[2]);
+            uint32_t nopCount = 0;
+            if(args.size() >= 4){
+                std::string nopCountStr = args[3];
+                if(CheckInt(nopCountStr)){
+                    nopCount = StrToInt(nopCountStr);
+                }
+            }
 
             LoadInjection inj;
             inj.InjectionType = type;
             inj.InjectionAddress = addr;
+            inj.NopCount = nopCount;
 
             bool found = false;
             for(std::vector<LoadFunction>::iterator it = exp.Functions.begin(); it != exp.Functions.end(); ++it)
@@ -484,8 +493,8 @@ uint32_t LoadConfig(std::string filename)
                 exp.Functions.push_back(newf);
             }
 
-            if(byOrd) printf("Added injection: %08X <- %s %s.%u\n", addr, (type == INJ_JMP ? "JMP " : "CALL"), exp.ModuleName.c_str(), ordinal);
-            else printf("Added injection: %08X <- %s %s!%s\n", addr, (type == INJ_JMP ? "JMP " : "CALL"), exp.ModuleName.c_str(), name.c_str());
+            if(byOrd) printf("Added injection: %08X <- %s %s.%u NOP codes: %d\n", addr, (type == INJ_JMP ? "JMP " : "CALL"), exp.ModuleName.c_str(), ordinal, nopCount);
+            else printf("Added injection: %08X <- %s %s!%s NOP codes: %d\n", addr, (type == INJ_JMP ? "JMP " : "CALL"), exp.ModuleName.c_str(), name.c_str(), nopCount);
 
         }
     }
@@ -992,17 +1001,28 @@ int main(int argc, char* argv[])
                 }
 
                 Exe.seekp(addra);
+                char* inj_data;
+                int inj_size;
                 if(inj.InjectionType == INJ_JMP)
                 {
-                    *(uint32_t*)(inj_jmp + 2) = func.FuncAddr;
-                    Exe.write((char*)inj_jmp, sizeof(inj_jmp));
+                    inj_data = (char*)inj_jmp;
+                    inj_size = sizeof(inj_jmp);
                 }
                 else
                 {
-                    *(uint32_t*)(inj_call + 2) = func.FuncAddr;
-                    Exe.write((char*)inj_call, sizeof(inj_call));
+                    inj_data = (char*)inj_call;
+                    inj_size = sizeof(inj_call);
                 }
-
+                *(uint32_t*)(inj_data + 2) = func.FuncAddr;
+                Exe.write(inj_data, inj_size);
+                if(inj.NopCount > 0){
+                    std::string nop_seq;
+                    for(int i = 0; i < inj.NopCount; i++){
+                       nop_seq += 0x90;
+                    }
+                    Exe.seekp(addra + inj_size);
+                    Exe.write(nop_seq.data(), nop_seq.size());
+                }
             }
         }
     }
